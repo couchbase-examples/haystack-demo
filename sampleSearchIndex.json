@@ -2,7 +2,7 @@
     "name": "pdf_search",
     "type": "fulltext-index",
     "sourceType": "gocbcore",
-    "sourceName": "haystack_bucket_name",
+    "sourceName": "haystack_bucket",
     "planParams": {
         "indexPartitions": 1,
         "numReplicas": 0
@@ -24,7 +24,7 @@
                 "enabled": false
             },
             "types": {
-                "haystack_scope_name.haystack_collection_name": {
+                "haystack_scope.haystack_collection": {
                     "dynamic": false,
                     "enabled": true,
                     "properties": {
