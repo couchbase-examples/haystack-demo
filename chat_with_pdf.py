@@ -34,10 +34,10 @@ def save_to_vector_store(uploaded_file, indexing_pipeline):
 def get_document_store():
     """Return the Couchbase document store"""
     return CouchbaseDocumentStore(
-        cluster_connection_string=Secret.from_token(os.getenv("DB_CONN_STR")),
+        cluster_connection_string=Secret.from_env_var("DB_CONN_STR"),
         authenticator=CouchbasePasswordAuthenticator(
-            username=Secret.from_token(os.getenv("DB_USERNAME")),
-            password=Secret.from_token(os.getenv("DB_PASSWORD"))
+            username=Secret.from_env_var("DB_USERNAME"),
+            password=Secret.from_env_var("DB_PASSWORD")
         ),
         cluster_options=CouchbaseClusterOptions(profile='wan_development'),
         bucket=os.getenv("DB_BUCKET"),
@@ -48,7 +48,7 @@ def get_document_store():
 
 
 if __name__ == "__main__":
-    OPENAI_API_KEY = Secret.from_token(os.getenv("OPENAI_API_KEY"))
+    OPENAI_API_KEY = Secret.from_env_var("OPENAI_API_KEY")
     st.set_page_config(
         page_title="Chat with your PDF using Haystack, Couchbase & Gemini Pro",
         page_icon="🤖",
