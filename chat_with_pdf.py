@@ -21,7 +21,6 @@ def save_to_vector_store(uploaded_file, indexing_pipeline):
     """Process the PDF & store it in Couchbase Vector Store"""
     if uploaded_file is not None:
         temp_dir = tempfile.TemporaryDirectory()
-        st.info(f"Temp directory created at: {temp_dir.name} jj {uploaded_file.name}")
         temp_file_path = os.path.join(temp_dir.name, uploaded_file.name)
         
         with open(temp_file_path, "wb") as f:
@@ -94,7 +93,7 @@ if __name__ == "__main__":
         "llm",
         OpenAIGenerator(
             api_key=OPENAI_API_KEY,
-            model="gpt-4o-",
+            model="gpt-4o",
         ),
     )
     rag_pipeline.add_component("answer_builder", AnswerBuilder())
