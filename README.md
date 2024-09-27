@@ -59,7 +59,7 @@ The RAG pipeline utilizes Haystack, Couchbase Vector Search, and a OpenAI model.
 
   #### Index Definition
 
-  Here, we are creating the index `pdf_search` on the documents in the `haystack_collection` collection within the `haystack_scope` scope in the bucket `haystack_bucket`. The Vector field is set to `embeddings` with 384 dimensions and the text field set to `text`. We are also indexing and storing all the fields under `metadata` in the document as a dynamic mapping to account for varying document structures. The similarity metric is set to `dot_product`. If there is a change in these parameters, please adapt the index accordingly.
+  Here, we are creating the index `pdf_search` on the documents in the `haystack_collection` collection within the `haystack_scope` scope in the bucket `haystack_bucket`. The Vector field is set to `embeddings` with 1536 dimensions and the text field set to `text`. We are also indexing and storing all the fields under `metadata` in the document as a dynamic mapping to account for varying document structures. The similarity metric is set to `dot_product`. If there is a change in these parameters, please adapt the index accordingly.
 
   ```
     {
@@ -113,7 +113,7 @@ The RAG pipeline utilizes Haystack, Couchbase Vector Search, and a OpenAI model.
                                     {
                                         "vector_index_optimized_for": "recall",
                                         "docvalues": true,
-                                        "dims": 384,
+                                        "dims": 1536,
                                         "include_in_all": false,
                                         "include_term_vectors": false,
                                         "index": true,
