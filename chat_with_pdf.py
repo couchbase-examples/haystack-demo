@@ -4,7 +4,7 @@ import streamlit as st
 from haystack import Pipeline
 from haystack.components.converters import PyPDFToDocument
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
-from haystack.components.embedders import SentenceTransformersTextEmbedder, SentenceTransformersDocumentEmbedder
+from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbedder
 from haystack.components.generators import OpenAIGenerator
 from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.writers import DocumentWriter
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     indexing_pipeline.add_component("converter", PyPDFToDocument())
     indexing_pipeline.add_component("cleaner", DocumentCleaner())
     indexing_pipeline.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=250, split_overlap=30))
-    indexing_pipeline.add_component("embedder", SentenceTransformersDocumentEmbedder(model="sentence-transformers/all-MiniLM-L6-v2"))
+    indexing_pipeline.add_component("embedder", OpenAIDocumentEmbedder())
     indexing_pipeline.add_component("writer", DocumentWriter(document_store=document_store))
 
     indexing_pipeline.connect("converter.documents", "cleaner.documents")
@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     # Create RAG pipeline
     rag_pipeline = Pipeline()
-    rag_pipeline.add_component("query_embedder", SentenceTransformersTextEmbedder(model="sentence-transformers/all-MiniLM-L6-v2"))
+    rag_pipeline.add_component("query_embedder", OpenAITextEmbedder())
     rag_pipeline.add_component("retriever", CouchbaseEmbeddingRetriever(document_store=document_store))
     rag_pipeline.add_component("prompt_builder", PromptBuilder(template="""
     You are a helpful bot. If you cannot answer based on the context provided, respond with a generic answer. Answer the question as truthfully as possible using the context below:
