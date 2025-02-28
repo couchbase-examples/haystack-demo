@@ -9,7 +9,7 @@ from haystack.components.generators import OpenAIGenerator
 from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.writers import DocumentWriter
 from haystack.utils import Secret
-from couchbase_haystack import CouchbaseDocumentStore, CouchbaseEmbeddingRetriever, CouchbasePasswordAuthenticator, CouchbaseClusterOptions
+from couchbase_haystack import CouchbaseSearchDocumentStore, CouchbaseSearchEmbeddingRetriever, CouchbasePasswordAuthenticator, CouchbaseClusterOptions
 
 def check_environment_variable(variable_name):
     """Check if environment variable is set"""
@@ -32,7 +32,7 @@ def save_to_vector_store(uploaded_file, indexing_pipeline):
 @st.cache_resource(show_spinner="Connecting to Vector Store")
 def get_document_store():
     """Return the Couchbase document store"""
-    return CouchbaseDocumentStore(
+    return CouchbaseSearchDocumentStore(
         cluster_connection_string=Secret.from_env_var("DB_CONN_STR"),
         authenticator=CouchbasePasswordAuthenticator(
             username=Secret.from_env_var("DB_USERNAME"),
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     indexing_pipeline = Pipeline()
     indexing_pipeline.add_component("converter", PyPDFToDocument())
     indexing_pipeline.add_component("cleaner", DocumentCleaner())
-    indexing_pipeline.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=250, split_overlap=30))
+    indexing_pipeline.add_component("splitter", DocumentSplitter(split_by="word", split_length=250, split_overlap=50))
     indexing_pipeline.add_component("embedder", OpenAIDocumentEmbedder())
     indexing_pipeline.add_component("writer", DocumentWriter(document_store=document_store))
 
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     # Create RAG pipeline
     rag_pipeline = Pipeline()
     rag_pipeline.add_component("query_embedder", OpenAITextEmbedder())
-    rag_pipeline.add_component("retriever", CouchbaseEmbeddingRetriever(document_store=document_store))
+    rag_pipeline.add_component("retriever", CouchbaseSearchEmbeddingRetriever(document_store=document_store))
     rag_pipeline.add_component("prompt_builder", PromptBuilder(template="""
     You are a helpful bot. If you cannot answer based on the context provided, respond with a generic answer. Answer the question as truthfully as possible using the context below:
     {% for doc in documents %}
