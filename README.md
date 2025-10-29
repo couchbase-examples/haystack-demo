@@ -64,7 +64,7 @@ The RAG pipeline utilizes Haystack, Couchbase GSI Vector Index (Hyperscale or Co
 
 ### Vector Index Creation
 
-You need to create a Hyperscale vector index on your collection **after** loading some documents (required for index training). Choose between BHIVe or Composite Index based on your use case. Whichever vector index (Hyperscale or Composite) you choose won't affect the funbctionality of this demo, though performance differences may occur.
+You need to create a Hyperscale vector index on your collection **after** loading some documents (required for index training). Choose between BHIVe or Composite Index based on your use case. Whichever vector index (Hyperscale or Composite) you choose won't affect the functionality of this demo, though performance differences may occur.
 
 #### Option 1: Hyperscale Vector Index - Recommended
 
