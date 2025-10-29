@@ -118,7 +118,7 @@ After creating the index, verify it exists:
 
 ```sql
 SELECT * FROM system:indexes 
-WHERE name=idx_pdf_composite;
+WHERE name='idx_pdf_composite';
 ```
 
 - #### Run the application
