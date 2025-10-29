@@ -68,7 +68,7 @@ You need to create a Hyperscale vector index on your collection **after** loadin
 
 #### Option 1: Hyperscale Vector Index - Recommended
 
-Hyperscale is a dedicated vector index optimized for pure vector search at massive scale. Use this for the best performance in RAG applications. Refer [here](https://docs.couchbase.com/cloud/vector-index/hyperscale-vector-index.html) for detailed instruction.
+Hyperscale is a dedicated vector index optimized for pure vector search at massive scale. Use this for the best performance in RAG applications. Refer [here](https://docs.couchbase.com/cloud/vector-index/hyperscale-vector-index.html) for detailed instructions.
 
 **Creating a Hyperscale Index using SQL++:**
 
