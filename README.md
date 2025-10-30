@@ -5,7 +5,7 @@ This is a demo app built to chat with your custom PDFs using the **Couchbase Vec
 This demo uses **`CouchbaseQueryDocumentStore`** with GSI vector indexes, which offers:
 
 - **High-performance vector search at massive scale** (billions of documents)
-- **BHIVe (Hyperscale Vector Index)** support for pure vector search
+- **Hyperscale Vector Index** support for pure vector search
 - **Composite Vector Index** support for filtered vector search
 - **SQL++ queries** for efficient vector retrieval
 - **Low memory footprint** and concurrent updates & searches
