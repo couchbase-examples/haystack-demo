@@ -1,6 +1,7 @@
 import os
 import tempfile
 import streamlit as st
+from datetime import timedelta
 from haystack import Pipeline
 from haystack.components.converters import PyPDFToDocument
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
@@ -9,6 +10,11 @@ from haystack.components.generators import OpenAIGenerator
 from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.writers import DocumentWriter
 from haystack.utils import Secret
+from couchbase.cluster import Cluster
+from couchbase.auth import PasswordAuthenticator
+from couchbase.options import ClusterOptions
+from couchbase.exceptions import ScopeAlreadyExistsException, CollectionAlreadyExistsException, QueryIndexAlreadyExistsException
+from couchbase.management.search import SearchIndex
 from couchbase_haystack import CouchbaseSearchDocumentStore, CouchbaseSearchEmbeddingRetriever, CouchbasePasswordAuthenticator, CouchbaseClusterOptions
 
 def check_environment_variable(variable_name):
@@ -16,6 +22,194 @@ def check_environment_variable(variable_name):
     if variable_name not in os.environ:
         st.error(f"{variable_name} environment variable is not set. Please add it to the secrets.toml file")
         st.stop()
+
+def create_scope_if_not_exists(collection_manager, scope_name):
+    """Create scope if it doesn't exist"""
+    try:
+        scopes = collection_manager.get_all_scopes()
+        scope_names = [scope.name for scope in scopes]
+        
+        if scope_name not in scope_names:
+            collection_manager.create_scope(scope_name)
+            st.info(f"Scope '{scope_name}' created successfully")
+            return True
+        return False
+    except ScopeAlreadyExistsException:
+        return False
+    except Exception as e:
+        st.warning(f"Could not create scope '{scope_name}': {str(e)}")
+        return False
+
+def create_collection_if_not_exists(collection_manager, scope_name, collection_name):
+    """Create collection if it doesn't exist"""
+    try:
+        scopes = collection_manager.get_all_scopes()
+        
+        for scope in scopes:
+            if scope.name == scope_name:
+                collection_names = [collection.name for collection in scope.collections]
+                
+                if collection_name not in collection_names:
+                    collection_manager.create_collection(scope_name=scope_name, collection_name=collection_name)
+                    st.info(f"Collection '{collection_name}' created in scope '{scope_name}'")
+                    return True
+                return False
+        
+        st.error(f"Scope '{scope_name}' does not exist, cannot create collection")
+        return False
+    except CollectionAlreadyExistsException:
+        return False
+    except Exception as e:
+        st.warning(f"Could not create collection '{collection_name}': {str(e)}")
+        return False
+
+def create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, index_name):
+    """Create FTS (Search) index with vector support if it doesn't exist"""
+    
+    try:
+        # FTS index definition with vector support
+        index_definition = {
+            "name": index_name,
+            "type": "fulltext-index",
+            "params": {
+                "doc_config": {
+                    "docid_prefix_delim": "",
+                    "docid_regexp": "",
+                    "mode": "scope.collection.type_field",
+                    "type_field": "type"
+                },
+                "mapping": {
+                    "default_analyzer": "standard",
+                    "default_datetime_parser": "dateTimeOptional",
+                    "default_field": "_all",
+                    "default_mapping": {
+                        "dynamic": True,
+                        "enabled": False
+                    },
+                    "default_type": "_default",
+                    "docvalues_dynamic": False,
+                    "index_dynamic": True,
+                    "store_dynamic": False,
+                    "type_field": "_type",
+                    "types": {
+                        f"{scope_name}.{collection_name}": {
+                            "dynamic": True,
+                            "enabled": True,
+                            "properties": {
+                                "embedding": {
+                                    "enabled": True,
+                                    "dynamic": False,
+                                    "fields": [
+                                        {
+                                            "dims": 1536,
+                                            "index": True,
+                                            "name": "embedding",
+                                            "similarity": "dot_product",
+                                            "type": "vector",
+                                            "vector_index_optimized_for": "recall"
+                                        }
+                                    ]
+                                },
+                                "meta": {
+                                    "dynamic": True,
+                                    "enabled": True
+                                },
+                                "content": {
+                                    "enabled": True,
+                                    "dynamic": False,
+                                    "fields": [
+                                        {
+                                            "index": True,
+                                            "name": "text",
+                                            "store": True,
+                                            "type": "text"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "store": {
+                    "indexType": "scorch",
+                    "segmentVersion": 16
+                }
+            },
+            "sourceType": "gocbcore",
+            "sourceName": bucket_name,
+            "sourceParams": {},
+            "planParams": {
+                "maxPartitionsPerPIndex": 64,
+                "indexPartitions": 16,
+                "numReplicas": 0
+            }
+        }
+        
+        # Get CLUSTER index manager (for bucket-level indexes)
+        scope_index_manager = cluster.bucket(bucket_name).scope(scope_name).search_indexes()
+        
+        # Check if index already exists
+        existing_indexes = scope_index_manager.get_all_indexes()
+        if index_definition["name"] in [index.name for index in existing_indexes]:
+            st.info(f"FTS index '{index_definition['name']}' already exists")
+            return False
+        
+        st.info(f"Creating FTS index '{index_definition['name']}'...")
+        
+        # Create SearchIndex object from JSON definition
+        search_index = SearchIndex.from_json(index_definition)
+        
+        # Upsert the index (create if not exists, update if exists)
+        scope_index_manager.upsert_index(search_index)
+        
+        st.success(f"FTS index '{index_definition['name']}' successfully created")
+        st.info("Note: The FTS index may take a few moments to build")
+        return True
+        
+    except QueryIndexAlreadyExistsException:
+        st.info(f"FTS index '{index_definition['name']}' already exists")
+        return False
+    except Exception as e:
+        error_msg = str(e)
+        if "already exists" in error_msg.lower():
+            st.info(f"FTS index '{index_definition['name']}' already exists")
+            return False
+        elif "service" in error_msg.lower() and "unavailable" in error_msg.lower():
+            st.error("Search service is not available. Please ensure the Search service is enabled in your Couchbase cluster.")
+            return False
+        else:
+            st.warning(f"Could not create FTS index '{index_definition['name']}': {error_msg}")
+            st.info("You may need to create the FTS index manually. See README for instructions.")
+            return False
+
+def setup_couchbase_resources(cluster_connection_string, username, password, bucket_name, scope_name, collection_name, index_name):
+    """Setup Couchbase resources: scope, collection, and FTS index"""
+    try:
+        # Connect to cluster for management operations
+        auth = PasswordAuthenticator(username, password)
+        cluster = Cluster(cluster_connection_string, ClusterOptions(auth))
+        cluster.wait_until_ready(timedelta(seconds=10))
+        
+        bucket = cluster.bucket(bucket_name)
+        collection_manager = bucket.collections()
+        
+        # Create scope if needed
+        scope_created = create_scope_if_not_exists(collection_manager, scope_name)
+        
+        # Create collection if needed
+        collection_created = create_collection_if_not_exists(collection_manager, scope_name, collection_name)
+        
+        # If we just created scope or collection, wait a bit for them to be ready
+        if scope_created or collection_created:
+            import time
+            time.sleep(2)
+        
+        # Try to create FTS index
+        create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, index_name)
+        
+    except Exception as e:
+        st.error(f"Error during Couchbase setup: {str(e)}")
+        st.info("Continuing with existing resources...")
 
 def save_to_vector_store(uploaded_file, indexing_pipeline):
     """Process the PDF & store it in Couchbase Vector Store"""
@@ -60,6 +254,18 @@ if __name__ == "__main__":
     env_vars = ["DB_CONN_STR", "DB_USERNAME", "DB_PASSWORD", "DB_BUCKET", "DB_SCOPE", "DB_COLLECTION", "INDEX_NAME", "OPENAI_API_KEY"]
     for var in env_vars:
         check_environment_variable(var)
+
+    # Setup Couchbase resources (scope, collection, and FTS index)
+    with st.spinner("Setting up Couchbase resources..."):
+        setup_couchbase_resources(
+            cluster_connection_string=os.getenv("DB_CONN_STR"),
+            username=os.getenv("DB_USERNAME"),
+            password=os.getenv("DB_PASSWORD"),
+            bucket_name=os.getenv("DB_BUCKET"),
+            scope_name=os.getenv("DB_SCOPE"),
+            collection_name=os.getenv("DB_COLLECTION"),
+            index_name=os.getenv("INDEX_NAME")
+        )
 
     # Initialize document store
     document_store = get_document_store()

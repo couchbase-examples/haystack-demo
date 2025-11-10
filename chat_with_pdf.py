@@ -11,6 +11,10 @@ from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.writers import DocumentWriter
 from haystack.utils import Secret
 from couchbase.n1ql import QueryScanConsistency
+from couchbase.cluster import Cluster
+from couchbase.auth import PasswordAuthenticator
+from couchbase.options import ClusterOptions
+from couchbase.exceptions import QueryIndexAlreadyExistsException, ScopeAlreadyExistsException, CollectionAlreadyExistsException
 
 # Import CouchbaseQueryDocumentStore for GSI-based vector search with BHIVe support
 from couchbase_haystack import (
@@ -29,6 +33,142 @@ def check_environment_variable(variable_name):
         st.error(f"{variable_name} environment variable is not set. Please add it to the secrets.toml file")
         st.stop()
 
+def create_scope_if_not_exists(collection_manager, scope_name):
+    """Create scope if it doesn't exist"""
+    try:
+        scopes = collection_manager.get_all_scopes()
+        scope_names = [scope.name for scope in scopes]
+        
+        if scope_name not in scope_names:
+            collection_manager.create_scope(scope_name)
+            st.info(f"Scope '{scope_name}' created successfully")
+            return True
+        return False
+    except ScopeAlreadyExistsException:
+        return False
+    except Exception as e:
+        st.warning(f"Could not create scope '{scope_name}': {str(e)}")
+        return False
+
+def create_collection_if_not_exists(collection_manager, scope_name, collection_name):
+    """Create collection if it doesn't exist"""
+    try:
+        scopes = collection_manager.get_all_scopes()
+        
+        for scope in scopes:
+            if scope.name == scope_name:
+                collection_names = [collection.name for collection in scope.collections]
+                
+                if collection_name not in collection_names:
+                    collection_manager.create_collection(scope_name=scope_name, collection_name=collection_name)
+                    st.info(f"Collection '{collection_name}' created in scope '{scope_name}'")
+                    return True
+                return False
+        
+        st.error(f"Scope '{scope_name}' does not exist, cannot create collection")
+        return False
+    except CollectionAlreadyExistsException:
+        return False
+    except Exception as e:
+        st.warning(f"Could not create collection '{collection_name}': {str(e)}")
+        return False
+
+def create_vector_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, similarity="DOT", dimension=1536):
+    """Create Hyperscale vector index if it doesn't exist"""
+    index_name = f"idx_{collection_name}_vector"
+    
+    try:
+        # Check if index exists by trying to query system:indexes
+        check_query = f"""
+        SELECT COUNT(*) as count FROM system:indexes 
+        WHERE name = '{index_name}' 
+        AND keyspace_id = '{collection_name}'
+        AND bucket_id = '{bucket_name}'
+        AND scope_id = '{scope_name}'
+        """
+        
+        result = cluster.query(check_query)
+        rows = list(result)
+        
+        if rows and rows[0].get('count', 0) > 0:
+            st.success(f"Vector index '{index_name}' already exists!")
+            return False  # Index already exists
+        
+        # Count documents in collection first
+        count_query = f"SELECT COUNT(*) as doc_count FROM `{bucket_name}`.`{scope_name}`.`{collection_name}`"
+        count_result = cluster.query(count_query)
+        count_rows = list(count_result)
+        doc_count = count_rows[0].get('doc_count', 0) if count_rows else 0
+        
+        if doc_count == 0:
+            st.error("No documents found in collection. Please upload a PDF first before creating the vector index.")
+            return False
+        
+        # Create the Hyperscale vector index
+        create_index_query = f"""
+        CREATE VECTOR INDEX {index_name}
+        ON `{collection_name}`(embedding VECTOR) 
+        WITH {{
+          "dimension": {dimension},
+          "similarity": "{similarity}"
+        }}
+        """
+        
+        # Set query context to the bucket.scope, then run the create index
+        cluster.bucket(bucket_name).scope(scope_name).query(create_index_query).execute()
+        st.success(f"Vector index '{index_name}' created successfully!")
+        st.info("Note: The vector index may take a few moments to become fully available")
+        return True
+        
+    except QueryIndexAlreadyExistsException:
+        st.info(f"Vector index '{index_name}' already exists")
+        return False
+    except Exception as e:
+        error_msg = str(e)
+        
+        # If the error is about index already existing, that's fine
+        if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+            st.info(f"Vector index '{index_name}' already exists")
+            return False
+        # If it's about no documents, warn but continue
+        elif "no documents" in error_msg.lower() or "training" in error_msg.lower():
+            st.warning(f"Vector index requires documents for training. Please upload a PDF first.")
+            return False
+        else:
+            st.error(f"Could not create vector index: {error_msg}")
+            st.info("You may need to create the vector index manually. See README for instructions.")
+            return False
+
+def setup_couchbase_resources(cluster_connection_string, username, password, bucket_name, scope_name, collection_name, create_index=False):
+    """Setup Couchbase resources: scope, collection, and optionally vector index"""
+    try:
+        # Connect to cluster for management operations
+        auth = PasswordAuthenticator(username, password)
+        cluster = Cluster(cluster_connection_string, ClusterOptions(auth))
+        cluster.wait_until_ready(timedelta(seconds=10))
+        
+        bucket = cluster.bucket(bucket_name)
+        collection_manager = bucket.collections()
+        
+        # Create scope if needed
+        scope_created = create_scope_if_not_exists(collection_manager, scope_name)
+        
+        # Create collection if needed
+        collection_created = create_collection_if_not_exists(collection_manager, scope_name, collection_name)
+        
+        # If we just created scope or collection, wait a bit for them to be ready
+        if scope_created or collection_created:
+            import time
+            time.sleep(2)
+        
+        # Only create vector index if explicitly requested (after documents are uploaded)
+        if create_index:
+            create_vector_index_if_not_exists(cluster, bucket_name, scope_name, collection_name)
+        
+    except Exception as e:
+        st.error(f"Error during Couchbase setup: {str(e)}")
+        st.info("Continuing with existing resources...")
+
 def save_to_vector_store(uploaded_file, indexing_pipeline):
     """Process the PDF & store it in Couchbase Vector Store"""
     if uploaded_file is not None:
@@ -40,6 +180,17 @@ def save_to_vector_store(uploaded_file, indexing_pipeline):
         result = indexing_pipeline.run({"converter": {"sources": [temp_file_path]}})
         
         st.info(f"PDF loaded into vector store: {result['writer']['documents_written']} documents indexed")
+        
+        # Now that we have documents, create the vector index
+        setup_couchbase_resources(
+            cluster_connection_string=os.getenv("DB_CONN_STR"),
+            username=os.getenv("DB_USERNAME"),
+            password=os.getenv("DB_PASSWORD"),
+            bucket_name=os.getenv("DB_BUCKET"),
+            scope_name=os.getenv("DB_SCOPE"),
+            collection_name=os.getenv("DB_COLLECTION"),
+            create_index=True
+        )
 
 @st.cache_resource(show_spinner="Connecting to Vector Store")
 def get_document_store():
@@ -78,6 +229,18 @@ if __name__ == "__main__":
     env_vars = ["DB_CONN_STR", "DB_USERNAME", "DB_PASSWORD", "DB_BUCKET", "DB_SCOPE", "DB_COLLECTION", "OPENAI_API_KEY"]
     for var in env_vars:
         check_environment_variable(var)
+
+    # Setup Couchbase resources (scope and collection only, index created after document upload)
+    with st.spinner("Setting up Couchbase resources..."):
+        setup_couchbase_resources(
+            cluster_connection_string=os.getenv("DB_CONN_STR"),
+            username=os.getenv("DB_USERNAME"),
+            password=os.getenv("DB_PASSWORD"),
+            bucket_name=os.getenv("DB_BUCKET"),
+            scope_name=os.getenv("DB_SCOPE"),
+            collection_name=os.getenv("DB_COLLECTION"),
+            create_index=False  # Don't create index yet, wait for documents
+        )
 
     # Initialize document store
     document_store = get_document_store()
@@ -157,6 +320,20 @@ if __name__ == "__main__":
     if question := st.chat_input("Ask a question based on the PDF"):
         st.chat_message("user").markdown(question)
         st.session_state.messages.append({"role": "user", "content": question, "avatar": "👤"})
+
+        # Ensure vector index exists before first query (fallback safety check)
+        if "index_check_done" not in st.session_state:
+            with st.spinner("Ensuring vector index is ready..."):
+                setup_couchbase_resources(
+                    cluster_connection_string=os.getenv("DB_CONN_STR"),
+                    username=os.getenv("DB_USERNAME"),
+                    password=os.getenv("DB_PASSWORD"),
+                    bucket_name=os.getenv("DB_BUCKET"),
+                    scope_name=os.getenv("DB_SCOPE"),
+                    collection_name=os.getenv("DB_COLLECTION"),
+                    create_index=True
+                )
+                st.session_state.index_check_done = True
 
         # RAG response
         with st.chat_message("assistant", avatar=couchbase_logo):

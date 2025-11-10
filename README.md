@@ -43,28 +43,54 @@ For each question, you will get two answers:
 
 The RAG pipeline utilizes Haystack, Couchbase Vector Search, and OpenAI models. It fetches relevant parts of the PDF using vector search & adds them as context for the language model.
 
+## Quick Start
+
+1. **Clone this repository**
+   ```bash
+   git clone <repository-url>
+   cd haystack-demo
+   ```
+
+2. **Create a Python virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Create a Couchbase bucket** (via Couchbase UI/Capella) with the name "sample_bucket"
+
+5. **Configure environment variables** (see Setup section below)
+
+6. **Run the Streamlit app**
+   ```bash
+   # For Hyperscale/Composite Vector Index (default)
+   streamlit run chat_with_pdf.py
+   
+   # OR for Search Service/FTS Vector Search
+   streamlit run chat_with_pdf_with_fts.py
+   ```
+
+7. **Upload a PDF** - everything else is automatic!
+
+The app automatically creates:
+- Scopes and collections
+- Vector indexes (after PDF upload for `chat_with_pdf.py`, or on startup for `chat_with_pdf_with_fts.py`)
+
 ## Which Option Should You Choose?
+Couchbase Capella supports three types of vector indexes:
 
-**Use Search Service / FTS (`chat_with_pdf_with_fts.py`) if:**
-- You need compatibility with Couchbase 7.6+
-- You want to combine vector search with rich full-text search capabilities
-- Your use case requires complex FTS filtering and text queries
-- You need hybrid search (combining keyword search with semantic search)
-- You're already familiar with FTS indexes
+- **Hyperscale Vector Index** (`chat_with_pdf.py`) - Best for RAG/chatbot applications with pure semantic search and billions of documents
+- **Composite Vector Index** (`chat_with_pdf.py`) - Best when you need to filter by metadata before vector search
+- **Search Vector Index** (`chat_with_pdf_with_fts.py`) - Best for hybrid searches combining keywords, geospatial, and semantic search
 
-**Use Hyperscale Vector Index (`chat_with_pdf.py`) if:**
-- You're using Couchbase 8.0+
-- You need maximum performance and scalability for pure vector search
-- Your use case involves RAG, chatbots, or semantic search without complex filtering
-- You want the ultra-low memory footprint and highest throughput
-- You're working with billions of documents
+> **For this PDF chat demo, we recommend Hyperscale Vector Index** for optimal performance in RAG applications.
 
-**Use Composite Vector Index (`chat_with_pdf.py`) if:**
-- You're using Couchbase 8.0+
-- You need to filter documents by metadata before performing vector search
-- Your use case involves filtered vector search (e.g., by date, category, user_id, status)
-- You want to combine scalar field filtering with vector similarity search
-- You need efficient pre-filtering before semantic search
+Learn more about choosing the right vector index in the [official Couchbase vector index documentation](https://docs.couchbase.com/cloud/vector-index/use-vector-indexes.html).
 
 
 ## Setup and Installation
@@ -95,13 +121,43 @@ Add one additional environment variable to the above configuration:
 INDEX_NAME = "<vector_capable_fts_index_name>"
 ```
 
-### Create the Vector Index
+### Automatic Resource Setup
 
-Depending on which implementation you choose, you'll need to create the appropriate index:
+The application automatically handles resource creation in the following order:
+
+**On Application Startup:**
+
+1. Creates the scope if it doesn't exist
+2. Creates the collection if it doesn't exist
+
+**After PDF Upload (`chat_with_pdf.py`):**
+
+3. Automatically creates the Hyperscale/Composite vector index after documents are loaded
+4. Falls back to creating the index on first query if needed
+
+**On Application Startup (`chat_with_pdf_with_fts.py`):**
+
+3. Attempts to create the FTS index (can be created without documents)
+
+**What You Need:**
+- Your Couchbase **bucket must exist** with the name "sample_bucket"
+- All other resources (scope, collection, indexes) are created automatically
+- **No manual index creation required** - just upload your PDF and the index will be created
+
+**Note**: For `chat_with_pdf.py`, the vector index is created automatically **after you upload your first PDF** because Hyperscale/Composite indexes require documents for training.
+
+### Manual Vector Index Creation (Optional)
+
+**The application now creates indexes automatically!** This section is only needed if:
+- You want to pre-create the index before uploading documents
+- Automatic creation fails in your environment
+- You prefer manual control over index configuration
 
 **For Hyperscale or Composite Vector Index (`chat_with_pdf.py`):**
 
-This demo uses Couchbase new Vector Indexes (introduced in version 8.0). Choose between:
+The app automatically creates the vector index after you upload your first PDF. However, you can manually create it if needed.
+
+This demo uses Couchbase's Vector Indexes (introduced in version 8.0). Choose between:
 
 - **Hyperscale Vector Index**: Optimized for pure vector search at scale. Perfect for RAG, chatbots, and scenarios needing fast vector similarity search on large datasets.
 
@@ -111,7 +167,7 @@ Learn more about these vector indexes [here](https://docs.couchbase.com/cloud/ve
 
 **For Search Service / FTS (`chat_with_pdf_with_fts.py`):**
 
-You'll need to create a Full Text Search index with vector capabilities. See the FTS index creation section below for detailed instructions.
+The app attempts to create the FTS index on startup. If automatic creation fails, you can create it manually. See the FTS index creation section below for detailed instructions.
 
 ### Key Components
 
@@ -120,7 +176,9 @@ You'll need to create a Full Text Search index with vector capabilities. See the
 - Couchbase: Serves as the high-performance vector store
 - OpenAI: Supplies embeddings and the language model
 
-## Vector Index Creation
+## Manual Vector Index Creation (Optional)
+
+**⚠️ Manual creation is NOT required** - the app creates indexes automatically when you upload a PDF. This section is only for advanced users who want manual control.
 
 ### Hyperscale or Composite Vector Index (for `chat_with_pdf.py`)
 
@@ -136,8 +194,8 @@ Creating a Hyperscale Index using SQL++ (use Couchbase Query Workbench or progra
 CREATE VECTOR INDEX idx_pdf_hyperscale
 ON `bucket_name`.`scope_name`.`collection_name`(embedding VECTOR) 
 WITH {
-  "dimension": 1536,           
-  "similarity": "DOT"         
+  "dimension": 1536,
+  "similarity": "DOT"
 };
 ```
 
@@ -171,39 +229,41 @@ After creating the index, verify it exists:
 
 ```sql
 SELECT * FROM system:indexes 
-WHERE name="idx_pdf_hyperscale";  -- or idx_pdf_composite
+WHERE name LIKE 'idx_%_vector';
 ```
 
 ### FTS Vector Index (for `chat_with_pdf_with_fts.py`)
 
-For the FTS-based implementation, you need to create a Full Text Search index with vector capabilities. This index should be created **after** loading some documents into your collection.
+**Automatic Creation**: The app attempts to create the FTS index automatically on startup using the `INDEX_NAME` from your configuration.
+
+**Manual Creation** (if automatic creation fails): Create a Full Text Search index with vector capabilities.
 
 **Creating an FTS Index with Vector Support**
 
-You can create the index using the Couchbase UI or by importing the provided index definition.
+If automatic creation fails, you can create the index using the Couchbase UI or by importing the provided index definition.
 
 Using Couchbase Capella:
 1. Follow the import instructions [here](https://docs.couchbase.com/cloud/search/import-search-index.html)
 2. Use the provided `sampleSearchIndex.json` file in this repository
 3. Update the following values in the JSON before importing:
-   - `sourceName`: Replace `haystack_bucket` with your bucket name
-   - `types`: Replace `haystack_scope.haystack_collection` with your actual `scope_name.collection_name`
+   - `sourceName`: Replace `sample_bucket` with your bucket name
+   - `types`: Replace `scope.coll` with your actual `scope_name.collection_name`
 4. Import the file in Capella
 5. Click on Create Index
 
 Using Couchbase Server:
 1. Navigate to Search -> Add Index -> Import
-2. Copy the contents of `sampleSearchIndex.json` from this repository
-3. Update the following values:
-   - `sourceName`: Replace `haystack_bucket` with your bucket name
-   - `types`: Replace `haystack_scope.haystack_collection` with your actual `scope_name.collection_name`
+2. Use the provided `sampleSearchIndex.json` file in this repository
+3. Update the following values in the JSON before importing:
+   - `sourceName`: Replace `sample_bucket` with your bucket name
+   - `types`: Replace `scope.coll` with your actual `scope_name.collection_name`
 4. Paste the updated JSON in the Import screen
 5. Click on Create Index
 
 **FTS Index Definition**
 
 The `sampleSearchIndex.json` file contains a pre-configured FTS index with vector capabilities. Key features:
-- **Index Name**: `pdf_search` (customizable)
+- **Index Name**: `sample-index` (customizable)
 - **Vector Field**: `embedding` with 1536 dimensions
 - **Similarity**: `dot_product` (optimized for OpenAI embeddings)
 - **Text Field**: `content` for document text
@@ -268,5 +328,5 @@ For more details on FTS implementation, refer to the code comments in `chat_with
 ## Additional Resources
 
 - [Couchbase Vector Index Documentation](https://docs.couchbase.com/cloud/vector-index/vectors-and-indexes-overview.html)
-- [Haystack Documentation](https://docs.haystack.deepset.ai/)
+- [Haystack Documentation](https://docs.haystack.deepset.ai/docs/intro)
 - [couchbase-haystack GitHub Repository](https://github.com/Couchbase-Ecosystem/couchbase-haystack)
