@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import streamlit as st
 from datetime import timedelta
@@ -67,83 +68,22 @@ def create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_
     """Create FTS (Search) index with vector support if it doesn't exist"""
     
     try:
-        # FTS index definition with vector support
-        index_definition = {
-            "name": index_name,
-            "type": "fulltext-index",
-            "params": {
-                "doc_config": {
-                    "docid_prefix_delim": "",
-                    "docid_regexp": "",
-                    "mode": "scope.collection.type_field",
-                    "type_field": "type"
-                },
-                "mapping": {
-                    "default_analyzer": "standard",
-                    "default_datetime_parser": "dateTimeOptional",
-                    "default_field": "_all",
-                    "default_mapping": {
-                        "dynamic": True,
-                        "enabled": False
-                    },
-                    "default_type": "_default",
-                    "docvalues_dynamic": False,
-                    "index_dynamic": True,
-                    "store_dynamic": False,
-                    "type_field": "_type",
-                    "types": {
-                        f"{scope_name}.{collection_name}": {
-                            "dynamic": True,
-                            "enabled": True,
-                            "properties": {
-                                "embedding": {
-                                    "enabled": True,
-                                    "dynamic": False,
-                                    "fields": [
-                                        {
-                                            "dims": 1536,
-                                            "index": True,
-                                            "name": "embedding",
-                                            "similarity": "dot_product",
-                                            "type": "vector",
-                                            "vector_index_optimized_for": "recall"
-                                        }
-                                    ]
-                                },
-                                "meta": {
-                                    "dynamic": True,
-                                    "enabled": True
-                                },
-                                "content": {
-                                    "enabled": True,
-                                    "dynamic": False,
-                                    "fields": [
-                                        {
-                                            "index": True,
-                                            "name": "text",
-                                            "store": True,
-                                            "type": "text"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                },
-                "store": {
-                    "indexType": "scorch",
-                    "segmentVersion": 16
-                }
-            },
-            "sourceType": "gocbcore",
-            "sourceName": bucket_name,
-            "sourceParams": {},
-            "planParams": {
-                "maxPartitionsPerPIndex": 64,
-                "indexPartitions": 16,
-                "numReplicas": 0
-            }
-        }
+        # Load FTS index definition from JSON file
+        json_file_path = os.path.join(os.path.dirname(__file__), "sampleSearchIndex.json")
+        with open(json_file_path, "r") as f:
+            index_definition = json.load(f)
+        
+        # Update the index definition with the provided parameters
+        index_definition["name"] = index_name
+        index_definition["sourceName"] = bucket_name
+        
+        # Update the type mapping to use the correct scope.collection
+        types_key = f"{scope_name}.{collection_name}"
+        # Get the existing type configuration (using the sample key "scope.coll")
+        sample_type_config = index_definition["params"]["mapping"]["types"].get("scope.coll")
+        if sample_type_config:
+            # Replace the sample key with the actual scope.collection key
+            index_definition["params"]["mapping"]["types"] = {types_key: sample_type_config}
         
         # Get CLUSTER index manager (for bucket-level indexes)
         scope_index_manager = cluster.bucket(bucket_name).scope(scope_name).search_indexes()
