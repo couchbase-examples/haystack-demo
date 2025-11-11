@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import streamlit as st
 from datetime import timedelta
@@ -10,22 +11,12 @@ from haystack.components.generators import OpenAIGenerator
 from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.writers import DocumentWriter
 from haystack.utils import Secret
-from couchbase.n1ql import QueryScanConsistency
 from couchbase.cluster import Cluster
 from couchbase.auth import PasswordAuthenticator
 from couchbase.options import ClusterOptions
-from couchbase.exceptions import QueryIndexAlreadyExistsException, ScopeAlreadyExistsException, CollectionAlreadyExistsException
-
-# Import CouchbaseQueryDocumentStore for GSI-based vector search with BHIVe support
-from couchbase_haystack import (
-    CouchbaseQueryDocumentStore,
-    CouchbaseQueryEmbeddingRetriever,
-    CouchbasePasswordAuthenticator,
-    CouchbaseClusterOptions,
-    QueryVectorSearchType,
-    QueryVectorSearchSimilarity,
-    CouchbaseQueryOptions
-)
+from couchbase.exceptions import ScopeAlreadyExistsException, CollectionAlreadyExistsException, QueryIndexAlreadyExistsException
+from couchbase.management.search import SearchIndex
+from couchbase_haystack import CouchbaseSearchDocumentStore, CouchbaseSearchEmbeddingRetriever, CouchbasePasswordAuthenticator, CouchbaseClusterOptions
 
 def check_environment_variable(variable_name):
     """Check if environment variable is set"""
@@ -73,74 +64,66 @@ def create_collection_if_not_exists(collection_manager, scope_name, collection_n
         st.warning(f"Could not create collection '{collection_name}': {str(e)}")
         return False
 
-def create_vector_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, similarity="DOT", dimension=1536):
-    """Create Hyperscale vector index if it doesn't exist"""
-    index_name = f"idx_{collection_name}_vector"
+def create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, index_name):
+    """Create FTS (Search) index with vector support if it doesn't exist"""
     
     try:
-        # Check if index exists by trying to query system:indexes
-        check_query = f"""
-        SELECT COUNT(*) as count FROM system:indexes 
-        WHERE name = '{index_name}' 
-        AND keyspace_id = '{collection_name}'
-        AND bucket_id = '{bucket_name}'
-        AND scope_id = '{scope_name}'
-        """
+        # Load FTS index definition from JSON file
+        json_file_path = os.path.join(os.path.dirname(__file__), "sampleSearchIndex.json")
+        with open(json_file_path, "r") as f:
+            index_definition = json.load(f)
         
-        result = cluster.query(check_query)
-        rows = list(result)
+        # Update the index definition with the provided parameters
+        index_definition["name"] = index_name
+        index_definition["sourceName"] = bucket_name
         
-        if rows and rows[0].get('count', 0) > 0:
-            st.success(f"Vector index '{index_name}' already exists!")
-            return False  # Index already exists
+        # Update the type mapping to use the correct scope.collection
+        types_key = f"{scope_name}.{collection_name}"
+        # Get the existing type configuration (using the sample key "scope.coll")
+        sample_type_config = index_definition["params"]["mapping"]["types"].get("scope.coll")
+        if sample_type_config:
+            # Replace the sample key with the actual scope.collection key
+            index_definition["params"]["mapping"]["types"] = {types_key: sample_type_config}
         
-        # Count documents in collection first
-        count_query = f"SELECT COUNT(*) as doc_count FROM `{bucket_name}`.`{scope_name}`.`{collection_name}`"
-        count_result = cluster.query(count_query)
-        count_rows = list(count_result)
-        doc_count = count_rows[0].get('doc_count', 0) if count_rows else 0
+        # Get CLUSTER index manager (for bucket-level indexes)
+        scope_index_manager = cluster.bucket(bucket_name).scope(scope_name).search_indexes()
         
-        if doc_count == 0:
-            st.error("No documents found in collection. Please upload a PDF first before creating the vector index.")
+        # Check if index already exists
+        existing_indexes = scope_index_manager.get_all_indexes()
+        if index_definition["name"] in [index.name for index in existing_indexes]:
+            st.info(f"FTS index '{index_definition['name']}' already exists")
             return False
         
-        # Create the Hyperscale vector index
-        create_index_query = f"""
-        CREATE VECTOR INDEX {index_name}
-        ON `{collection_name}`(embedding VECTOR) 
-        WITH {{
-          "dimension": {dimension},
-          "similarity": "{similarity}"
-        }}
-        """
+        st.info(f"Creating FTS index '{index_definition['name']}'...")
         
-        # Set query context to the bucket.scope, then run the create index
-        cluster.bucket(bucket_name).scope(scope_name).query(create_index_query).execute()
-        st.success(f"Vector index '{index_name}' created successfully!")
-        st.info("Note: The vector index may take a few moments to become fully available")
+        # Create SearchIndex object from JSON definition
+        search_index = SearchIndex.from_json(index_definition)
+        
+        # Upsert the index (create if not exists, update if exists)
+        scope_index_manager.upsert_index(search_index)
+        
+        st.success(f"FTS index '{index_definition['name']}' successfully created")
+        st.info("Note: The FTS index may take a few moments to build")
         return True
         
     except QueryIndexAlreadyExistsException:
-        st.info(f"Vector index '{index_name}' already exists")
+        st.info(f"FTS index '{index_definition['name']}' already exists")
         return False
     except Exception as e:
         error_msg = str(e)
-        
-        # If the error is about index already existing, that's fine
-        if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
-            st.info(f"Vector index '{index_name}' already exists")
+        if "already exists" in error_msg.lower():
+            st.info(f"FTS index '{index_definition['name']}' already exists")
             return False
-        # If it's about no documents, warn but continue
-        elif "no documents" in error_msg.lower() or "training" in error_msg.lower():
-            st.warning(f"Vector index requires documents for training. Please upload a PDF first.")
+        elif "service" in error_msg.lower() and "unavailable" in error_msg.lower():
+            st.error("Search service is not available. Please ensure the Search service is enabled in your Couchbase cluster.")
             return False
         else:
-            st.error(f"Could not create vector index: {error_msg}")
-            st.info("You may need to create the vector index manually. See README for instructions.")
+            st.warning(f"Could not create FTS index '{index_definition['name']}': {error_msg}")
+            st.info("You may need to create the FTS index manually. See README for instructions.")
             return False
 
-def setup_couchbase_resources(cluster_connection_string, username, password, bucket_name, scope_name, collection_name) -> Cluster:
-    """Setup Couchbase resources: scope, collection, and optionally vector index"""
+def setup_couchbase_resources(cluster_connection_string, username, password, bucket_name, scope_name, collection_name, index_name):
+    """Setup Couchbase resources: scope, collection, and FTS index"""
     try:
         # Connect to cluster for management operations
         auth = PasswordAuthenticator(username, password)
@@ -160,14 +143,15 @@ def setup_couchbase_resources(cluster_connection_string, username, password, buc
         if scope_created or collection_created:
             import time
             time.sleep(2)
-
-        return cluster
+        
+        # Try to create FTS index
+        create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, index_name)
         
     except Exception as e:
         st.error(f"Error during Couchbase setup: {str(e)}")
         st.info("Continuing with existing resources...")
 
-def save_to_vector_store(uploaded_file, indexing_pipeline) -> Cluster:
+def save_to_vector_store(uploaded_file, indexing_pipeline):
     """Process the PDF & store it in Couchbase Vector Store"""
     if uploaded_file is not None:
         temp_dir = tempfile.TemporaryDirectory()
@@ -178,31 +162,11 @@ def save_to_vector_store(uploaded_file, indexing_pipeline) -> Cluster:
         result = indexing_pipeline.run({"converter": {"sources": [temp_file_path]}})
         
         st.info(f"PDF loaded into vector store: {result['writer']['documents_written']} documents indexed")
-        
-        # Create the scope and collection
-        cluster = setup_couchbase_resources(
-            cluster_connection_string=os.getenv("DB_CONN_STR"),
-            username=os.getenv("DB_USERNAME"),
-            password=os.getenv("DB_PASSWORD"),
-            bucket_name=os.getenv("DB_BUCKET"),
-            scope_name=os.getenv("DB_SCOPE"),
-            collection_name=os.getenv("DB_COLLECTION"),
-        )
-
-        # Create the vector index
-        create_vector_index_if_not_exists(
-            cluster=cluster,
-            bucket_name=os.getenv("DB_BUCKET"),
-            scope_name=os.getenv("DB_SCOPE"),
-            collection_name=os.getenv("DB_COLLECTION"),
-        )
-        
-        return cluster
 
 @st.cache_resource(show_spinner="Connecting to Vector Store")
 def get_document_store():
-    """Return the Couchbase document store using CouchbaseQueryDocumentStore."""
-    return CouchbaseQueryDocumentStore(
+    """Return the Couchbase document store"""
+    return CouchbaseSearchDocumentStore(
         cluster_connection_string=Secret.from_env_var("DB_CONN_STR"),
         authenticator=CouchbasePasswordAuthenticator(
             username=Secret.from_env_var("DB_USERNAME"),
@@ -212,13 +176,7 @@ def get_document_store():
         bucket=os.getenv("DB_BUCKET"),
         scope=os.getenv("DB_SCOPE"),
         collection=os.getenv("DB_COLLECTION"),
-        search_type=QueryVectorSearchType.ANN,
-        similarity=QueryVectorSearchSimilarity.DOT,
-        nprobes=10,
-        query_options=CouchbaseQueryOptions(
-            timeout=timedelta(seconds=60),
-            scan_consistency=QueryScanConsistency.NOT_BOUNDED
-        )
+        vector_search_index=os.getenv("INDEX_NAME"),
     )
 
 
@@ -233,11 +191,11 @@ if __name__ == "__main__":
     )
 
     # Load and check environment variables
-    env_vars = ["DB_CONN_STR", "DB_USERNAME", "DB_PASSWORD", "DB_BUCKET", "DB_SCOPE", "DB_COLLECTION", "OPENAI_API_KEY"]
+    env_vars = ["DB_CONN_STR", "DB_USERNAME", "DB_PASSWORD", "DB_BUCKET", "DB_SCOPE", "DB_COLLECTION", "INDEX_NAME", "OPENAI_API_KEY"]
     for var in env_vars:
         check_environment_variable(var)
 
-    # Setup Couchbase resources (scope and collection only, index created after document upload)
+    # Setup Couchbase resources (scope, collection, and FTS index)
     with st.spinner("Setting up Couchbase resources..."):
         setup_couchbase_resources(
             cluster_connection_string=os.getenv("DB_CONN_STR"),
@@ -246,6 +204,7 @@ if __name__ == "__main__":
             bucket_name=os.getenv("DB_BUCKET"),
             scope_name=os.getenv("DB_SCOPE"),
             collection_name=os.getenv("DB_COLLECTION"),
+            index_name=os.getenv("INDEX_NAME")
         )
 
     # Initialize document store
@@ -267,7 +226,7 @@ if __name__ == "__main__":
     # Create RAG pipeline
     rag_pipeline = Pipeline()
     rag_pipeline.add_component("query_embedder", OpenAITextEmbedder())
-    rag_pipeline.add_component("retriever", CouchbaseQueryEmbeddingRetriever(document_store=document_store))
+    rag_pipeline.add_component("retriever", CouchbaseSearchEmbeddingRetriever(document_store=document_store))
     rag_pipeline.add_component("prompt_builder", PromptBuilder(template="""
     You are a helpful bot. If you cannot answer based on the context provided, respond with a generic answer. Answer the question as truthfully as possible using the context below:
     {% for doc in documents %}
@@ -296,7 +255,7 @@ if __name__ == "__main__":
     couchbase_logo = "https://emoji.slack-edge.com/T024FJS4M/couchbase/4a361e948b15ed91.png"
 
     st.title("Chat with PDF")
-    st.markdown("Answers with [Couchbase logo](https://emoji.slack-edge.com/T024FJS4M/couchbase/4a361e948b15ed91.png) are generated using *RAG* while 🤖 are generated by pure *LLM (OpenAI)*")
+    st.markdown("Answers with [Couchbase logo](https://emoji.slack-edge.com/T024FJS4M/couchbase/4a361e948b15ed91.png) are generated using *RAG* while 🤖 are generated by pure *LLM (Gemini)*")
 
     with st.sidebar:
         st.header("Upload your PDF")
@@ -310,10 +269,10 @@ if __name__ == "__main__":
         st.markdown("""
             For each question, you will get two answers: 
             * one using RAG ([Couchbase logo](https://emoji.slack-edge.com/T024FJS4M/couchbase/4a361e948b15ed91.png))
-            * one using pure LLM - OpenAI (🤖). 
+            * one using pure LLM - Gemini (🤖). 
             """)
 
-        st.markdown("For RAG, we are using [Haystack](https://haystack.deepset.ai/), [Couchbase Vector Search](https://docs.couchbase.com/cloud/vector-index/hyperscale-vector-index.html) & [OpenAI](https://openai.com/). We fetch parts of the PDF relevant to the question using high-performance GSI vector search & add it as the context to the LLM. The LLM is instructed to answer based on the context from the Vector Store.")
+        st.markdown("For RAG, we are using [Haystack](https://haystack.deepset.ai/), [Couchbase Vector Search](https://couchbase.com/) & [Gemini](https://gemini.google.com/). We fetch parts of the PDF relevant to the question using Vector search & add it as the context to the LLM. The LLM is instructed to answer based on the context from the Vector Store.")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -326,25 +285,6 @@ if __name__ == "__main__":
     if question := st.chat_input("Ask a question based on the PDF"):
         st.chat_message("user").markdown(question)
         st.session_state.messages.append({"role": "user", "content": question, "avatar": "👤"})
-
-        # Ensure vector index exists before first query (fallback safety check)
-        if "index_check_done" not in st.session_state:
-            with st.spinner("Ensuring vector index is ready..."):
-                cluster = setup_couchbase_resources(
-                    cluster_connection_string=os.getenv("DB_CONN_STR"),
-                    username=os.getenv("DB_USERNAME"),
-                    password=os.getenv("DB_PASSWORD"),
-                    bucket_name=os.getenv("DB_BUCKET"),
-                    scope_name=os.getenv("DB_SCOPE"),
-                    collection_name=os.getenv("DB_COLLECTION"),
-                )
-                create_vector_index_if_not_exists(
-                    cluster=cluster,
-                    bucket_name=os.getenv("DB_BUCKET"),
-                    scope_name=os.getenv("DB_SCOPE"),
-                    collection_name=os.getenv("DB_COLLECTION"),
-                )
-                st.session_state.index_check_done = True
 
         # RAG response
         with st.chat_message("assistant", avatar=couchbase_logo):
