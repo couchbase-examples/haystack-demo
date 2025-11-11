@@ -139,7 +139,7 @@ def create_vector_index_if_not_exists(cluster, bucket_name, scope_name, collecti
             st.info("You may need to create the vector index manually. See README for instructions.")
             return False
 
-def setup_couchbase_resources(cluster_connection_string, username, password, bucket_name, scope_name, collection_name, create_index=False):
+def setup_couchbase_resources(cluster_connection_string, username, password, bucket_name, scope_name, collection_name) -> Cluster:
     """Setup Couchbase resources: scope, collection, and optionally vector index"""
     try:
         # Connect to cluster for management operations
@@ -160,16 +160,14 @@ def setup_couchbase_resources(cluster_connection_string, username, password, buc
         if scope_created or collection_created:
             import time
             time.sleep(2)
-        
-        # Only create vector index if explicitly requested (after documents are uploaded)
-        if create_index:
-            create_vector_index_if_not_exists(cluster, bucket_name, scope_name, collection_name)
+
+        return cluster
         
     except Exception as e:
         st.error(f"Error during Couchbase setup: {str(e)}")
         st.info("Continuing with existing resources...")
 
-def save_to_vector_store(uploaded_file, indexing_pipeline):
+def save_to_vector_store(uploaded_file, indexing_pipeline) -> Cluster:
     """Process the PDF & store it in Couchbase Vector Store"""
     if uploaded_file is not None:
         temp_dir = tempfile.TemporaryDirectory()
@@ -181,16 +179,25 @@ def save_to_vector_store(uploaded_file, indexing_pipeline):
         
         st.info(f"PDF loaded into vector store: {result['writer']['documents_written']} documents indexed")
         
-        # Now that we have documents, create the vector index
-        setup_couchbase_resources(
+        # Create the scope and collection
+        cluster = setup_couchbase_resources(
             cluster_connection_string=os.getenv("DB_CONN_STR"),
             username=os.getenv("DB_USERNAME"),
             password=os.getenv("DB_PASSWORD"),
             bucket_name=os.getenv("DB_BUCKET"),
             scope_name=os.getenv("DB_SCOPE"),
             collection_name=os.getenv("DB_COLLECTION"),
-            create_index=True
         )
+
+        # Create the vector index
+        create_vector_index_if_not_exists(
+            cluster=cluster,
+            bucket_name=os.getenv("DB_BUCKET"),
+            scope_name=os.getenv("DB_SCOPE"),
+            collection_name=os.getenv("DB_COLLECTION"),
+        )
+        
+        return cluster
 
 @st.cache_resource(show_spinner="Connecting to Vector Store")
 def get_document_store():
@@ -239,7 +246,6 @@ if __name__ == "__main__":
             bucket_name=os.getenv("DB_BUCKET"),
             scope_name=os.getenv("DB_SCOPE"),
             collection_name=os.getenv("DB_COLLECTION"),
-            create_index=False  # Don't create index yet, wait for documents
         )
 
     # Initialize document store
@@ -324,14 +330,19 @@ if __name__ == "__main__":
         # Ensure vector index exists before first query (fallback safety check)
         if "index_check_done" not in st.session_state:
             with st.spinner("Ensuring vector index is ready..."):
-                setup_couchbase_resources(
+                cluster = setup_couchbase_resources(
                     cluster_connection_string=os.getenv("DB_CONN_STR"),
                     username=os.getenv("DB_USERNAME"),
                     password=os.getenv("DB_PASSWORD"),
                     bucket_name=os.getenv("DB_BUCKET"),
                     scope_name=os.getenv("DB_SCOPE"),
                     collection_name=os.getenv("DB_COLLECTION"),
-                    create_index=True
+                )
+                create_vector_index_if_not_exists(
+                    cluster=cluster,
+                    bucket_name=os.getenv("DB_BUCKET"),
+                    scope_name=os.getenv("DB_SCOPE"),
+                    collection_name=os.getenv("DB_COLLECTION"),
                 )
                 st.session_state.index_check_done = True
 
