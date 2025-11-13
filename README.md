@@ -6,7 +6,7 @@ This is a demo app built to chat with your custom PDFs using **Couchbase Vector 
 
 ### Option 1: Search Vector Index (`chat_with_pdf_with_search_vector_index.py`)
 
-Uses **`CouchbaseSearchDocumentStore`** with Search vector indexe, which offers:
+Uses **`CouchbaseSearchDocumentStore`** with Search vector indexes, which offers:
 
 - **Flexible vector search** 
 - **Rich text search** combined with vector similarity
