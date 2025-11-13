@@ -287,7 +287,7 @@ This alternative implementation uses:
    - Supports rich text search combined with vector similarity
 
 2. **CouchbaseSearchEmbeddingRetriever**:
-   - Leverages Search vector search capabilities
+   - Leverages Search vector index capabilities
    - Retrieves top-k most similar documents using FTS queries
    - Supports complex filtering with FTS query syntax
 
