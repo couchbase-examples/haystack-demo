@@ -210,7 +210,7 @@ WHERE name LIKE 'idx_%_vector';
 
 **Manual Creation** (if automatic creation fails): Create a Full Text Search index with vector capabilities.
 
-**Creating an Search Vector Index with Vector Support**
+**Creating a Search Vector Index with Vector Support**
 
 If automatic creation fails, you can create the index using the Couchbase UI or by importing the provided index definition.
 
