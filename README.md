@@ -204,7 +204,7 @@ SELECT * FROM system:indexes
 WHERE name LIKE 'idx_%_vector';
 ```
 
-### Search Vector Vector Index (for `chat_with_pdf_with_search_vector_index.py`)
+### Search Vector Index (for `chat_with_pdf_with_search_vector_index.py`)
 
 **Automatic Creation**: The app attempts to create the Search Vector index automatically on startup using the `INDEX_NAME` from your configuration.
 
