@@ -25,7 +25,7 @@ Uses **`CouchbaseQueryDocumentStore`** with Hyperscale (BHIVe) vector index, whi
 
 ### Option 3: Composite Vector Index
 
-Use **`CouchbaseQueryDocumentStore`** with Composite vector index, which offers:
+Uses **`CouchbaseQueryDocumentStore`** with Composite vector index, which offers:
 
 - **Vector search with metadata filtering**
 - **Combines vector fields with scalar fields** for pre-filtering
