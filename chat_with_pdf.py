@@ -280,7 +280,7 @@ if __name__ == "__main__":
         "llm",
         OpenAIGenerator(
             api_key=OPENAI_API_KEY,
-            model="gpt-4o",
+            model="gpt-5",
         ),
     )
     rag_pipeline.add_component("answer_builder", AnswerBuilder())
