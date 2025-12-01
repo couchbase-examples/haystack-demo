@@ -14,7 +14,7 @@ Uses **`CouchbaseSearchDocumentStore`** with Search vector indexes, which offers
 - **Compatible with Couchbase 7.6+**
 - **Ideal for hybrid search** scenarios combining full-text and vector search
 
-### Option 2: Hyperscale Vector Index (Default - `chat_with_pdf.py`)
+### Option 2: Hyperscale Vector Index (Default - `chat_with_pdf_with_query_vector_index.py`)
 
 Uses **`CouchbaseQueryDocumentStore`** with Hyperscale vector index, which offers:
 
@@ -33,7 +33,7 @@ Uses **`CouchbaseQueryDocumentStore`** with Composite vector index, which offers
 - **Best for filtered vector search** scenarios (e.g., filter by date, category, user_id)
 - **Recommended for Couchbase 8.0+** when you need to filter before vector search
 
-This demo doesn't use Composite Vector index, but you can easily do so by just removing `VECTOR` from [this line](./chat_with_pdf.py#L109) and keeping the rest same. To learn more about how Composite Vector Indexes are made, you can refer [here](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
+This demo doesn't use Composite Vector index, but you can easily do so by just removing `VECTOR` from [this line](./chat_with_pdf_with_query_vector_index.py#L109) and keeping the rest same. To learn more about how Composite Vector Indexes are made, you can refer [here](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
 
 ## How does it work?
 
@@ -71,7 +71,7 @@ The RAG pipeline utilizes Haystack, Couchbase Vector Search, and OpenAI models. 
 6. **Run the Streamlit app**
    ```bash
    # For Hyperscale Vector Index (default)
-   streamlit run chat_with_pdf.py
+   streamlit run chat_with_pdf_with_query_vector_index.py
    
    # OR for Search Vector Index
    streamlit run chat_with_pdf_with_search_vector_index.py
@@ -81,12 +81,12 @@ The RAG pipeline utilizes Haystack, Couchbase Vector Search, and OpenAI models. 
 
 The app automatically creates:
 - Scopes and collections
-- Vector indexes (after PDF upload for `chat_with_pdf.py`, or on startup for `chat_with_pdf_with_search_vector_index.py`)
+- Vector indexes (after PDF upload for `chat_with_pdf_with_query_vector_index.py`, or on startup for `chat_with_pdf_with_search_vector_index.py`)
 
 ## Which Option Should You Choose?
 Couchbase Capella supports three types of vector indexes:
 
-- **Hyperscale Vector Index** (`chat_with_pdf.py`) - Best for RAG/chatbot applications with pure semantic search and billions of documents
+- **Hyperscale Vector Index** (`chat_with_pdf_with_query_vector_index.py`) - Best for RAG/chatbot applications with pure semantic search and billions of documents
 - **Composite Vector Index** - Best when you need to filter by metadata before vector search
 - **Search Vector Index** (`chat_with_pdf_with_search_vector_index.py`) - Best for hybrid searches combining keywords, geospatial, and semantic search
 
@@ -105,7 +105,7 @@ Learn more about choosing the right vector index in the [official Couchbase vect
 
 Copy the `secrets.example.toml` file in `.streamlit` folder and rename it to `secrets.toml` and replace the placeholders with the actual values for your environment
 
-**For Hyperscale Vector Index (`chat_with_pdf.py`):**
+**For Hyperscale Vector Index (`chat_with_pdf_with_query_vector_index.py`):**
 ```
 DB_CONN_STR = "<couchbase_cluster_connection_string>"
 DB_USERNAME = "<couchbase_username>"
@@ -132,7 +132,7 @@ The application automatically handles resource creation in the following order:
 1. Creates the scope if it doesn't exist
 2. Creates the collection if it doesn't exist
 
-**After PDF Upload (`chat_with_pdf.py`):**
+**After PDF Upload (`chat_with_pdf_with_query_vector_index.py`):**
 
 3. Automatically creates the Hyperscale index after documents are loaded
 4. Falls back to creating the index on first query if needed
@@ -146,7 +146,7 @@ The application automatically handles resource creation in the following order:
 - All other resources (scope, collection, indexes) are created automatically
 - **No manual index creation required** - just upload your PDF and the index will be created
 
-**Note**: For `chat_with_pdf.py`, the vector index is created automatically **after you upload your first PDF** because Hyperscale/Composite indexes require documents for training.
+**Note**: For `chat_with_pdf_with_query_vector_index.py`, the vector index is created automatically **after you upload your first PDF** because Hyperscale/Composite indexes require documents for training.
 
 ## Manual Vector Index Creation (Optional)
 
@@ -245,7 +245,7 @@ The `sampleSearchIndex.json` file contains a pre-configured Search Vector index 
 
 **For Hyperscale or Composite Vector Index:**
 ```
-streamlit run chat_with_pdf.py
+streamlit run chat_with_pdf_with_query_vector_index.py
 ```
 
 **For Search Vector Index:**
@@ -255,7 +255,7 @@ streamlit run chat_with_pdf_with_search_vector_index.py
 
 ## Implementation Details
 
-### Hyperscale Vector Index Implementation (`chat_with_pdf.py`)
+### Hyperscale Vector Index Implementation (`chat_with_pdf_with_query_vector_index.py`)
 
 This demo uses the following key components:
 
@@ -275,7 +275,7 @@ This demo uses the following key components:
    - `text-embedding-ada-002` model with 1536 dimensions
    - Generates embeddings for both documents and queries
 
-For more details on implementation, refer to the extensive code comments in `chat_with_pdf.py`.
+For more details on implementation, refer to the extensive code comments in `chat_with_pdf_with_query_vector_index.py`.
 
 ### Search Vector Index Implementation (`chat_with_pdf_with_search_vector_index.py`)
 
