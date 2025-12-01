@@ -16,7 +16,7 @@ Uses **`CouchbaseSearchDocumentStore`** with Search vector indexes, which offers
 
 ### Option 2: Hyperscale Vector Index (Default - `chat_with_pdf.py`)
 
-Uses **`CouchbaseQueryDocumentStore`** with Hyperscale (BHIVe) vector index, which offers:
+Uses **`CouchbaseQueryDocumentStore`** with Hyperscale vector index, which offers:
 
 - **High-performance vector search at massive scale** (billions of documents)
 - **Pure vector search** optimized for RAG applications
@@ -154,7 +154,7 @@ The application automatically handles resource creation in the following order:
 
 ### Hyperscale or Composite Vector Index
 
-You need to create a Hyperscale or Composite vector index on your collection **after** loading some documents (required for index training). Choose between BHIVe or Composite Index based on your use case. Whichever vector index (Hyperscale or Composite) you choose won't affect the functionality of this demo, though performance differences may occur.
+You need to create a Hyperscale or Composite vector index on your collection **after** loading some documents (required for index training). Choose between Hyperscale or Composite Index based on your use case. Whichever vector index (Hyperscale or Composite) you choose won't affect the functionality of this demo, though performance differences may occur.
 
 **Option 1: Hyperscale Vector Index (Recommended)**
 
