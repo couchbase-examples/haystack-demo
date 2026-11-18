@@ -2,7 +2,6 @@ import os
 import json
 import tempfile
 import streamlit as st
-from datetime import timedelta
 from haystack import Pipeline
 from haystack.components.converters import PyPDFToDocument
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
@@ -11,58 +10,11 @@ from haystack.components.generators import OpenAIGenerator
 from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.writers import DocumentWriter
 from haystack.utils import Secret
-from couchbase.cluster import Cluster
-from couchbase.auth import PasswordAuthenticator
-from couchbase.options import ClusterOptions
-from couchbase.exceptions import ScopeAlreadyExistsException, CollectionAlreadyExistsException, QueryIndexAlreadyExistsException
+from couchbase.exceptions import QueryIndexAlreadyExistsException
 from couchbase.management.search import SearchIndex
 from couchbase_haystack import CouchbaseSearchDocumentStore, CouchbaseSearchEmbeddingRetriever, CouchbasePasswordAuthenticator, CouchbaseClusterOptions
 
-def check_environment_variable(variable_name):
-    """Check if environment variable is set"""
-    if variable_name not in os.environ:
-        st.error(f"{variable_name} environment variable is not set. Please add it to the secrets.toml file")
-        st.stop()
-
-def create_scope_if_not_exists(collection_manager, scope_name):
-    """Create scope if it doesn't exist"""
-    try:
-        scopes = collection_manager.get_all_scopes()
-        scope_names = [scope.name for scope in scopes]
-        
-        if scope_name not in scope_names:
-            collection_manager.create_scope(scope_name)
-            st.info(f"Scope '{scope_name}' created successfully")
-            return True
-        return False
-    except ScopeAlreadyExistsException:
-        return False
-    except Exception as e:
-        st.warning(f"Could not create scope '{scope_name}': {str(e)}")
-        return False
-
-def create_collection_if_not_exists(collection_manager, scope_name, collection_name):
-    """Create collection if it doesn't exist"""
-    try:
-        scopes = collection_manager.get_all_scopes()
-        
-        for scope in scopes:
-            if scope.name == scope_name:
-                collection_names = [collection.name for collection in scope.collections]
-                
-                if collection_name not in collection_names:
-                    collection_manager.create_collection(scope_name=scope_name, collection_name=collection_name)
-                    st.info(f"Collection '{collection_name}' created in scope '{scope_name}'")
-                    return True
-                return False
-        
-        st.error(f"Scope '{scope_name}' does not exist, cannot create collection")
-        return False
-    except CollectionAlreadyExistsException:
-        return False
-    except Exception as e:
-        st.warning(f"Could not create collection '{collection_name}': {str(e)}")
-        return False
+from couchbase_setup import check_environment_variable, setup_couchbase_resources
 
 def create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, index_name):
     """Create FTS (Search) index with vector support if it doesn't exist"""
@@ -122,35 +74,6 @@ def create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_
             st.info("You may need to create the FTS index manually. See README for instructions.")
             return False
 
-def setup_couchbase_resources(cluster_connection_string, username, password, bucket_name, scope_name, collection_name, index_name):
-    """Setup Couchbase resources: scope, collection, and FTS index"""
-    try:
-        # Connect to cluster for management operations
-        auth = PasswordAuthenticator(username, password)
-        cluster = Cluster(cluster_connection_string, ClusterOptions(auth))
-        cluster.wait_until_ready(timedelta(seconds=10))
-        
-        bucket = cluster.bucket(bucket_name)
-        collection_manager = bucket.collections()
-        
-        # Create scope if needed
-        scope_created = create_scope_if_not_exists(collection_manager, scope_name)
-        
-        # Create collection if needed
-        collection_created = create_collection_if_not_exists(collection_manager, scope_name, collection_name)
-        
-        # If we just created scope or collection, wait a bit for them to be ready
-        if scope_created or collection_created:
-            import time
-            time.sleep(2)
-        
-        # Try to create FTS index
-        create_fts_index_if_not_exists(cluster, bucket_name, scope_name, collection_name, index_name)
-        
-    except Exception as e:
-        st.error(f"Error during Couchbase setup: {str(e)}")
-        st.info("Continuing with existing resources...")
-
 def save_to_vector_store(uploaded_file, indexing_pipeline):
     """Process the PDF & store it in Couchbase Vector Store"""
     if uploaded_file is not None:
@@ -197,15 +120,22 @@ if __name__ == "__main__":
 
     # Setup Couchbase resources (scope, collection, and FTS index)
     with st.spinner("Setting up Couchbase resources..."):
-        setup_couchbase_resources(
+        cluster = setup_couchbase_resources(
             cluster_connection_string=os.getenv("DB_CONN_STR"),
             username=os.getenv("DB_USERNAME"),
             password=os.getenv("DB_PASSWORD"),
             bucket_name=os.getenv("DB_BUCKET"),
             scope_name=os.getenv("DB_SCOPE"),
             collection_name=os.getenv("DB_COLLECTION"),
-            index_name=os.getenv("INDEX_NAME")
         )
+        if cluster is not None:
+            create_fts_index_if_not_exists(
+                cluster,
+                bucket_name=os.getenv("DB_BUCKET"),
+                scope_name=os.getenv("DB_SCOPE"),
+                collection_name=os.getenv("DB_COLLECTION"),
+                index_name=os.getenv("INDEX_NAME"),
+            )
 
     # Initialize document store
     document_store = get_document_store()
