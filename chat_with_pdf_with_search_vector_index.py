@@ -9,6 +9,7 @@ from haystack.components.embedders import OpenAIDocumentEmbedder, OpenAITextEmbe
 from haystack.components.generators import OpenAIGenerator
 from haystack.components.builders import PromptBuilder, AnswerBuilder
 from haystack.components.writers import DocumentWriter
+from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils import Secret
 from couchbase.exceptions import QueryIndexAlreadyExistsException
 from couchbase.management.search import SearchIndex
@@ -146,7 +147,7 @@ if __name__ == "__main__":
     indexing_pipeline.add_component("cleaner", DocumentCleaner())
     indexing_pipeline.add_component("splitter", DocumentSplitter(split_by="word", split_length=250, split_overlap=50))
     indexing_pipeline.add_component("embedder", OpenAIDocumentEmbedder())
-    indexing_pipeline.add_component("writer", DocumentWriter(document_store=document_store))
+    indexing_pipeline.add_component("writer", DocumentWriter(document_store=document_store, policy=DuplicatePolicy.OVERWRITE))
 
     indexing_pipeline.connect("converter.documents", "cleaner.documents")
     indexing_pipeline.connect("cleaner.documents", "splitter.documents")
