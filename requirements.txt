@@ -1,8 +1,7 @@
 streamlit==1.67.0
 couchbase-haystack==2.1.0
-haystack-ai<3.0.0  # haystack-ai 3.x removed OpenAIGenerator, which both apps use
+haystack-ai>=2.3.0,<3  # haystack-ai 3.x removed OpenAIGenerator, which both apps use
 pypdf==6.21.4
 pillow==13.0.0  # pulled in by streamlit; pinned to the first release with the security fixes
 nltk>=3.9.1
 requests>=2.31.0
-haystack-ai>=2.3.0,<3
