@@ -5,3 +5,4 @@ pypdf==6.21.4
 pillow==13.0.0  # pulled in by streamlit; pinned to the first release with the security fixes
 nltk>=3.9.1
 requests>=2.31.0
+haystack-ai>=2.3.0,<3

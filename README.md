@@ -33,7 +33,7 @@ Uses **`CouchbaseQueryDocumentStore`** with Composite vector index, which offers
 - **Best for filtered vector search** scenarios (e.g., filter by date, category, user_id)
 - **Recommended for Couchbase 8.0+** when you need to filter before vector search
 
-This demo doesn't use Composite Vector index, but you can easily do so by just removing `VECTOR` from [this line](./chat_with_pdf_with_query_vector_index.py#L109) and keeping the rest same. To learn more about how Composite Vector Indexes are made, you can refer [here](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
+This demo doesn't use Composite Vector index, but you can easily do so by just removing `VECTOR` from [this line](./chat_with_pdf_with_query_vector_index.py#L64) and keeping the rest same. To learn more about how Composite Vector Indexes are made, you can refer [here](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
 
 ## How does it work?
 
@@ -296,6 +296,14 @@ This alternative implementation uses:
    - Generates embeddings for both documents and queries
 
 For more details on FTS implementation, refer to the code comments in `chat_with_pdf_with_search_vector_index.py`.
+
+### Shared Couchbase setup (`couchbase_setup.py`)
+
+Both apps import `couchbase_setup.py`, which checks the required environment variables, connects to the cluster, and creates the scope and collection if they are missing. Each app then creates its own index (Hyperscale vector index or Search vector index). Its unit tests use fakes and need no cluster:
+
+```
+python -m unittest discover -s tests
+```
 
 ## Additional Resources
 
